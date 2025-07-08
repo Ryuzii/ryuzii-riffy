@@ -1,33 +1,16 @@
-# Riffy [![NPM version](https://img.shields.io/npm/v/riffy.svg?style=flat-square&color=informational)](https://npmjs.com/package/riffy)
+# ryuzii-riffy
 
 A next-generation Lavalink client for Node.JS, designed to be powerful, reliable, and extensible—now with advanced diagnostics, plugin system, and developer experience features. Compatible with all Discord libraries (discord.js, Eris, etc.).
 
 ---
 
-> **This is the improved, advanced Riffy by Ryuzii.**
-> Focused on next-gen features: seamless auto-resume, advanced queue, plugin hot-reload, diagnostics, and more—these improvements are exclusive to this GitHub version.
-> 
-> **To use this improved version, install with:**
+> **Install the improved, advanced Riffy by Ryuzii:**
 > ```shell
 > npm i https://github.com/Ryuzii/ryuzii-riffy
 > ```
-> 
-> **Want the original, stable Riffy?**
-> Install from npm:
-> ```shell
-> npm install riffy
-> ```
-> See [npmjs.com/package/riffy](https://npmjs.com/package/riffy) for the official release and documentation.
-> 
-> For full details on this advanced version, see the code and examples below.
+> Unlock next-gen features: seamless auto-resume, advanced queue, plugin hot-reload, diagnostics, and more—**exclusive to this GitHub version.**
 
 ---
-
-## Installation
-
-```shell
-npm install riffy
-```
 
 ## Features
 
@@ -47,7 +30,7 @@ npm install riffy
 
 ## Advanced Options Schema
 
-Riffy now uses a powerful, focused options schema. Only the most important and advanced options are shown below. For full details, see the [documentation](https://riffy.js.org).
+Riffy now uses a powerful, focused options schema. Only the most important and advanced options are shown below.
 
 ```js
 const riffyOptions = {
@@ -95,7 +78,7 @@ const riffyOptions = {
 
 ## Creating a Project (with the new Riffy options)
 
-Below is an example of a modern Discord music bot using Discord.js v14 and the improved Riffy options. For more, see the [documentation](https://riffy.js.org).
+Below is an example of a modern Discord music bot using Discord.js v14 and the improved Riffy options.
 
 ```js
 const { Client, GatewayDispatchEvents } = require("discord.js");
@@ -128,12 +111,71 @@ client.on("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ... (see documentation for full command and event examples)
+// Example Usage: Basic Music Commands
+client.on("messageCreate", async (message) => {
+  if (!message.content.startsWith("!") || message.author.bot) return;
+
+  const args = message.content.slice(1).trim().split(" ");
+  const command = args.shift().toLowerCase();
+
+  if (command === "play") {
+    const query = args.join(" ");
+    const player = client.riffy.createConnection({
+      guildId: message.guild.id,
+      voiceChannel: message.member.voice.channel.id,
+      textChannel: message.channel.id,
+      deaf: true,
+    });
+
+    const resolve = await client.riffy.resolve({ query, requester: message.author });
+    const { loadType, tracks, playlistInfo } = resolve;
+
+    if (loadType === "playlist") {
+      for (const track of tracks) {
+        track.info.requester = message.author;
+        player.queue.add(track);
+      }
+      message.channel.send(`Added: \`${tracks.length} tracks\` from \`${playlistInfo.name}\``);
+      if (!player.playing && !player.paused) player.play();
+    } else if (loadType === "search" || loadType === "track") {
+      const track = tracks.shift();
+      track.info.requester = message.author;
+      player.queue.add(track);
+      message.channel.send(`Added: \`${track.info.title}\``);
+      if (!player.playing && !player.paused) player.play();
+    } else {
+      message.channel.send("No results found.");
+    }
+  }
+
+  if (command === "skip") {
+    const player = client.riffy.players.get(message.guild.id);
+    if (!player) return message.channel.send("No player found.");
+    player.stop();
+    message.channel.send("Skipped the current song.");
+  }
+
+  if (command === "stop") {
+    const player = client.riffy.players.get(message.guild.id);
+    if (!player) return message.channel.send("No player found.");
+    player.destroy();
+    message.channel.send("Stopped the player.");
+  }
+
+  if (command === "queue") {
+    const player = client.riffy.players.get(message.guild.id);
+    if (!player) return message.channel.send("No player found.");
+    const queue = player.queue;
+    if (!queue.length) return message.channel.send("No songs in queue.");
+    const embed = {
+      title: "Queue",
+      description: queue.map((track, i) => `${i + 1}) ${track.info.title} | ${track.info.author}`).join("\n")
+    };
+    message.channel.send({ embeds: [embed] });
+  }
+});
+
 ```
-
----
-
-> For advanced usage, plugin development, and full API, see the [Riffy documentation](https://riffy.js.org).
 
 ---
 
