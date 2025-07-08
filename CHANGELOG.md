@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Features & Improvements
+- Unified `.lyrics` command now supports both plain and synced (LRC) lyrics.
+- If synced lyrics are available, the command displays real-time lyric lines (karaoke style) by editing the message every 500ms.
+- Uses advanced Riffy options and real-time lyric support in Player.js.
+- No separate `.syncedlyrics` command; all logic is merged into `.lyrics` for a seamless experience.
+- Example/test bots (`test/v3.js`, `test/v4.js`) updated to demonstrate this feature.
+
 ## v1.0.7 (2025-06-10)
 
 ### What's Changed

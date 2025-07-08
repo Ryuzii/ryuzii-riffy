@@ -1,4 +1,4 @@
-# ryuzii-riffy
+# Riffy
 
 A next-generation Lavalink client for Node.JS, designed to be powerful, reliable, and extensible—now with advanced diagnostics, plugin system, and developer experience features. Compatible with all Discord libraries (discord.js, Eris, etc.).
 
@@ -27,6 +27,7 @@ A next-generation Lavalink client for Node.JS, designed to be powerful, reliable
 -   Full TypeScript/IDE support with up-to-date typings.
 -   Compatible with all Discord libraries (discord.js, Eris, etc.).
 -   Works with all Lavalink filters.
+-   Unified lyrics command: fetches plain or real-time synced (LRC) lyrics with karaoke-style updates.
 
 ## Advanced Options Schema
 
@@ -172,6 +173,29 @@ client.on("messageCreate", async (message) => {
       description: queue.map((track, i) => `${i + 1}) ${track.info.title} | ${track.info.author}`).join("\n")
     };
     message.channel.send({ embeds: [embed] });
+  }
+
+  if (command === "lyrics") {
+    const player = client.riffy.players.get(message.guild.id);
+    if (!player) return message.channel.send("No player found.");
+    if (!player.current) return message.channel.send("No track is currently playing.");
+    const { title, author } = player.current.info;
+    const result = await player.getLyrics({ track_name: title, artist_name: author });
+    if (result.error) return message.channel.send(result.error);
+    if (result.syncedLyrics) {
+      const msg = await message.channel.send({ embeds: [{ title: "Live Lyrics", description: "Starting..." }] });
+      let elapsed = 0;
+      const interval = setInterval(() => {
+        if (!player.playing || elapsed > 30) { clearInterval(interval); return; }
+        const line = player.getCurrentLyricLine(result.syncedLyrics, player.position);
+        msg.edit({ embeds: [{ title: "Live Lyrics", description: line || "..." }] });
+        elapsed++;
+      }, 500);
+    } else if (result.lyrics) {
+      message.channel.send({ embeds: [{ title: "Lyrics", description: result.lyrics.slice(0, 4000) }] });
+    } else {
+      message.channel.send("No lyrics found for this track.");
+    }
   }
 });
 
