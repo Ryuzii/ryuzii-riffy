@@ -8,6 +8,12 @@
 - Uses advanced Riffy options and real-time lyric support in Player.js.
 - No separate `.syncedlyrics` command; all logic is merged into `.lyrics` for a seamless experience.
 - Example/test bots (`test/v3.js`, `test/v4.js`) updated to demonstrate this feature.
+- Major improvements and refactors in `build/structures` (Player.js, Riffy.js, Node.js, etc.) for advanced options, seamless auto-resume, diagnostics, plugin system, queue/track management, and more.
+- Player.js: Real-time lyrics support, unified lyrics command, advanced queue/history, robust auto-resume, and diagnostics.
+- Riffy.js: True auto-resume (rejoin VC and resume playback after restart), improved node management, delayed player restore until node connect, and detailed debug logging.
+- Node.js, Rest.js, Track.js, Queue.js, Plugins.js, Filters.js, Connection.js: All updated for new options schema, diagnostics, plugin support, and performance.
+- autoPlay.js: Improved SoundCloud, Spotify, and Apple Music autoplay logic, robust error handling, and updated endpoints.
+- All test bots and documentation updated to demonstrate and explain these new features.
 
 ## v1.0.7 (2025-06-10)
 
@@ -64,84 +70,4 @@
 
 ## Beta Version Changes
 - Improved Typings
-- Passing `channel_id` as `null` in `.setStateUpdate()` in `Connection` Class should emit `playerDestroy` event.
-- `node.send` and `node.region` is not an option anymore, use `node.regions` instead
-- This version rollbacks the some commits & changes mainly like `autoPlay`, Node version checks from https://github.com/riffy-team/riffy/commit/f53fbf07640e78ae4e3cc2b6009eb8d5c9104788
-- This version fixes `updatePlayer` throwing Error for Constant variable leading to failure of conversion in `encodedTrack` property. Also Fixes tracks being empty in `riffy.resolve()` for v3 Node due to incorrect condition of the ternary operator
-* Kindly report any found bugs and issues to us.
-
-## 1.0.6 (2024-06-26)
-
-## Changes
-- Node Connections now be checked for inactivity on the basis of interval of sending node stats
-
-## 1.0.5 (2024-03-24)
-
-- Allows you to add Nodes based on regions
-- If region is provided in `.createConnection()` options, that same node will be used to resolve songs. Ref- https://github.com/riffy-team/riffy/issues/7
-- Fix of `.fetchRegion()` on `Riffy` for different lavalink versions
-
-## 1.0.3 (2023-11-09)
-
-# **Bug**
-* Fixed plugin load error.
-
-## 1.0.2 (2023-09-21)
-
-## Changes
-- `.seek()` function will not push the song forward, rather than that it will get the seeker to the passed section.
-
-## 1.0.1 (2023-09-13)
-
-## Changes
-- Player will not lag up if disconnected manually from the VC.
-
-## 1.0.0 (2023-09-10)
-
-# __Release__
-* In this new **1.0.0** (beta-out) version, we fixed the filters and some very unnoticeable bugs.
-* Check out the [docs](https://riffy.js.org/) for more information.
-
-## 1.0.6-beta (2023-09-09)
-
-## Updates
-- `.resolve()` can now resolve songs with Identifiers for Spotify and Youtube
-
-## 1.0.5-beta (2023-09-05)
-
-# __Update__
-* Updated track for plugin support
-
-## 1.0.4-beta (2023-09-04)
-
-## Changes
-- Player skipping track while doing `Player.autoplay()` has been fixed.
-- New Property has been added to `Player` i.e., `.isAutoplay`
-- Implementation on Autoplay has been changed a bit. Check the [documentation](https://riffy.js.org/implementations/autoplay) for new Implementation
-- Functions like `.setBassboost()` has been fixed.
-
-## 1.0.3-beta (2023-09-04)
-
-## Changes
-- `Player.play()` will throw error if prior connection is not initiated via `Riffy.createConnection()`
-- Removed empty collections
-- Updated typing's
-
-## 1.0.2-beta (2023-09-04)
-
-# Changes
-- Added Compatibility Filters
-- You can now remove a Filter by passing `null` as an argument in Function Method.
-- Volume Property in Filters is now synced with `Player.volume`
-
-## 1.0.1-beta (2023-09-04)
-
-# __Bug__
-* Fixed **Spotify** image not fetching.
-
-## 1.0.0-beta (2023-08-28)
-
-# __Release__
-**Riffy** is a pro lavalink client. It is designed to be simple and easy to use, with a focus on stability and more features.
-* Know more [riffy.js.org](https://riffy.js.org/)
-
+- Passing `channel_id` as `null` in `.setStateUpdate()` in `Connection` Class should emit `playerDestroy`
