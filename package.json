@@ -10,6 +10,7 @@
   "dependencies": {
     "@discordjs/voice": "^0.18.0",
     "jsdom": "^26.0.0",
+    "lrclib-api": "^2.0.0",
     "undici": ">=6.11.1",
     "ws": "^8.16.0"
   },

@@ -5,6 +5,15 @@ const { Queue } = require("./Queue");
 const { spAutoPlay, scAutoPlay, amAutoPlay } = require('../functions/autoPlay');
 const { inspect } = require("util");
 
+// --- Real-time live lyrics support using lrclib-api ---
+let lrclibClient = null;
+try {
+    const { Client } = require('lrclib-api');
+    lrclibClient = new Client();
+} catch (error) {
+    console.warn('lrclib-api not installed. Lyrics functionality will be disabled.');
+}
+
 /**
  * Represents a music player for a guild.
  * @extends EventEmitter
@@ -781,6 +790,106 @@ class Player extends EventEmitter {
         } catch (err) {
             this.riffy.emit('playerError', this, err);
             throw err;
+        }
+    }
+
+    /**
+     * Fetch lyrics (plain and synced) for the current track or a custom query.
+     * @param {Object|null} queryOverride - Optional custom query { track_name, artist_name, album_name }
+     * @returns {Promise<{lyrics?: string, syncedLyrics?: string, error?: string, metadata?: Object}>}
+     */
+    async getLyrics(queryOverride = null) {
+        if (!this.current && !queryOverride) {
+            return { error: 'No track is currently playing.' };
+        }
+        if (!lrclibClient) {
+            return { error: 'Lyrics functionality not available. Install lrclib-api package.' };
+        }
+        try {
+            let query;
+            if (queryOverride) {
+                query = { ...queryOverride };
+            } else {
+                const info = this.current.info;
+                let author = info.author;
+                if (!author && info.requester && info.requester.username) {
+                    author = info.requester.username;
+                }
+                if (!author) {
+                    author = 'Unknown Artist';
+                }
+                query = {
+                    track_name: info.title,
+                    artist_name: author
+                };
+                if (info.pluginInfo?.albumName) {
+                    query.album_name = info.pluginInfo.albumName;
+                }
+            }
+            this.riffy.emit('debug', this.guildId, `Lyrics query: ${JSON.stringify(query)}`);
+            if (!query.track_name || !query.artist_name) {
+                return { error: 'Track information incomplete.' };
+            }
+            const meta = await lrclibClient.findLyrics(query);
+            if (!meta) {
+                return { error: 'Lyrics not found for this track.' };
+            }
+            const result = {
+                metadata: {
+                    id: meta.id,
+                    trackName: meta.trackName,
+                    artistName: meta.artistName,
+                    albumName: meta.albumName,
+                    duration: meta.duration,
+                    instrumental: meta.instrumental
+                }
+            };
+            if (meta.syncedLyrics) {
+                result.syncedLyrics = meta.syncedLyrics;
+                result.lyrics = meta.plainLyrics;
+            } else if (meta.plainLyrics) {
+                result.lyrics = meta.plainLyrics;
+            } else {
+                return { error: 'No lyrics available for this track.' };
+            }
+            return result;
+        } catch (error) {
+            this.riffy.emit('debug', this.guildId, `Lyrics fetch error: ${error.message}`);
+            return { error: `Failed to fetch lyrics: ${error.message}` };
+        }
+    }
+
+    /**
+     * Get the current lyric line based on playback position (for synced lyrics)
+     * @param {string} syncedLyrics - LRC formatted lyrics string
+     * @param {number} currentTimeMs - Current playback position in milliseconds
+     * @returns {string} Current lyric line or empty string
+     */
+    getCurrentLyricLine(syncedLyrics, currentTimeMs = this.position) {
+        if (!syncedLyrics || !currentTimeMs) {
+            return '';
+        }
+        try {
+            const lines = syncedLyrics.split('\n');
+            let currentLine = '';
+            for (const line of lines) {
+                const timeMatch = line.match(/\[(\d{2}):(\d{2})\.(\d{2})\]/);
+                if (timeMatch) {
+                    const minutes = parseInt(timeMatch[1]);
+                    const seconds = parseInt(timeMatch[2]);
+                    const centiseconds = parseInt(timeMatch[3]);
+                    const lineTimeMs = (minutes * 60 + seconds) * 1000 + centiseconds * 10;
+                    if (currentTimeMs >= lineTimeMs) {
+                        currentLine = line.replace(/\[\d{2}:\d{2}\.\d{2}\]/, '').trim();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            return currentLine;
+        } catch (error) {
+            this.riffy.emit('debug', this.guildId, `Lyric line parsing error: ${error.message}`);
+            return '';
         }
     }
 }
