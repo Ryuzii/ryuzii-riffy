@@ -1,6 +1,6 @@
 # Riffy
 
-A next-generation Lavalink client for Node.JS, designed to be powerful, reliable, and extensible — now with advanced diagnostics, plugin system, and developer experience features. Compatible with all Discord libraries (discord.js, Eris, etc.).
+A next-generation Lavalink client for Node.JS, designed to be powerful, reliable, and extensible - now with advanced diagnostics, plugin system, and developer experience features. Compatible with all Discord libraries (discord.js, Eris, etc.).
 
 ---
 
@@ -8,7 +8,7 @@ A next-generation Lavalink client for Node.JS, designed to be powerful, reliable
 > ```shell
 > npm i https://github.com/Ryuzii/ryuzii-riffy
 > ```
-> Unlock next-gen features: seamless auto-resume, advanced queue, plugin hot-reload, diagnostics, and more—**exclusive to this GitHub version.**
+> Unlock next-gen features: seamless auto-resume, advanced queue, plugin hot-reload, diagnostics, and more - **exclusive to this GitHub version.**
 
 ---
 
