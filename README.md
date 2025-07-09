@@ -120,34 +120,51 @@ client.on("messageCreate", async (message) => {
   const command = args.shift().toLowerCase();
 
   if (command === "play") {
-    const query = args.join(" ");
-    const player = client.riffy.createConnection({
-      guildId: message.guild.id,
-      voiceChannel: message.member.voice.channel.id,
-      textChannel: message.channel.id,
-      deaf: true,
-    });
+        const query = args.join(" ");
 
-    const resolve = await client.riffy.resolve({ query, requester: message.author });
-    const { loadType, tracks, playlistInfo } = resolve;
+        // Create a player.
+        const player = client.riffy.createConnection({
+            guildId: message.guild.id,
+            voiceChannel: message.member.voice.channel.id,
+            textChannel: message.channel.id,
+            deaf: true,
+        });
 
-    if (loadType === "playlist") {
-      for (const track of tracks) {
-        track.info.requester = message.author;
-        player.queue.add(track);
-      }
-      message.channel.send(`Added: \`${tracks.length} tracks\` from \`${playlistInfo.name}\``);
-      if (!player.playing && !player.paused) player.play();
-    } else if (loadType === "search" || loadType === "track") {
-      const track = tracks.shift();
-      track.info.requester = message.author;
-      player.queue.add(track);
-      message.channel.send(`Added: \`${track.info.title}\``);
-      if (!player.playing && !player.paused) player.play();
-    } else {
-      message.channel.send("No results found.");
+        const resolve = await client.riffy.resolve({
+            query: query,
+            requester: message.author,
+        });
+        const { loadType, tracks, playlistInfo } = resolve;
+
+        /**
+         * Important: If you are using Lavalink V3, here are the changes you need to make:
+         *
+         * 1. Replace "playlist" with "PLAYLIST_LOADED"
+         * 2. Replace "search" with "SEARCH_RESULT"
+         * 3. Replace "track" with "TRACK_LOADED"
+         */
+
+        if (loadType === "playlist") {
+            for (const track of resolve.tracks) {
+                track.info.requester = message.author;
+                player.queue.add(track);
+            }
+
+            message.channel.send(
+                `Added: \`${tracks.length} tracks\` from \`${playlistInfo.name}\``
+            );
+            if (!player.playing && !player.paused) return player.play();
+        } else if (loadType === "search" || loadType === "track") {
+            const track = tracks.shift();
+            track.info.requester = message.author;
+
+            player.queue.add(track);
+            message.channel.send(`Added: \`${track.info.title}\``);
+            if (!player.playing && !player.paused) return player.play();
+        } else {
+            return message.channel.send("There are no results found.");
+        }
     }
-  }
 
   if (command === "skip") {
     const player = client.riffy.players.get(message.guild.id);
@@ -201,7 +218,64 @@ client.on("messageCreate", async (message) => {
 
 ```
 
+// This will send log when the lavalink node is connected.
+client.riffy.on("nodeConnect", (node) => {
+    console.log(`Node "${node.name}" connected.`);
+});
+
+// This will send log when the lavalink node faced an error.
+client.riffy.on("nodeError", (node, error) => {
+    console.log(`Node "${node.name}" encountered an error: ${error.message}.`);
+});
+
+// This is the event handler for track start.
+client.riffy.on("trackStart", async (player, track) => {
+    const channel = client.channels.cache.get(player.textChannel);
+
+    channel.send(`Now playing: \`${track.info.title}\` by \`${track.info.author}\`.`);
+});
+
+// This is the event handler for queue end.
+client.riffy.on("queueEnd", async (player) => {
+    const channel = client.channels.cache.get(player.textChannel);
+
+    // Set this to true if you want to enable autoplay.
+    const autoplay = false;
+
+    if (autoplay) {
+        player.autoplay(player);
+    } else {
+        player.destroy();
+        channel.send("Queue has ended.");
+    }
+});
+
+// This will update the voice state of the player.
+client.on("raw", (d) => {
+    if (
+        ![
+            GatewayDispatchEvents.VoiceStateUpdate,
+            GatewayDispatchEvents.VoiceServerUpdate,
+        ].includes(d.t)
+    )
+        return;
+    client.riffy.updateVoiceState(d);
+});
+
+client.login("Discord-Bot-Token-Here");
+
 ---
+
+## Running the Bot
+Now that we have created our project, we can run our bot by typing the following command in the terminal.
+```bash
+# node.js
+node index.js
+# bun
+bun run index.js
+```
+
+After running the bot, you can invite it to your server and use the !play command to play music.
 
 ## License
 
