@@ -216,8 +216,6 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-```
-
 // This will send log when the lavalink node is connected.
 client.riffy.on("nodeConnect", (node) => {
     console.log(`Node "${node.name}" connected.`);
@@ -263,6 +261,7 @@ client.on("raw", (d) => {
 });
 
 client.login("Discord-Bot-Token-Here");
+```
 
 ---
 
