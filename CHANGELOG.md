@@ -13,6 +13,13 @@
 - Riffy.js: True auto-resume (rejoin VC and resume playback after restart), improved node management, delayed player restore until node connect, and detailed debug logging.
 - Node.js, Rest.js, Track.js, Queue.js, Plugins.js, Filters.js, Connection.js: All updated for new options schema, diagnostics, plugin support, and performance.
 - autoPlay.js: Improved SoundCloud, Spotify, and Apple Music autoplay logic, robust error handling, and updated endpoints.
+- **Apple Music autoplay now uses advanced genre/region-aware logic:**
+    - Tries all genres of the original track in the original country.
+    - Tries the main chart in the original country.
+    - Tries the pop genre in the original country.
+    - If KPOP/JPOP, tries the Korean/Japanese main chart.
+    - Falls back to the US main chart as a last resort.
+    - Logs each fallback step for transparency.
 - All test bots and documentation updated to demonstrate and explain these new features.
 
 ## v1.0.7 (2025-06-10)

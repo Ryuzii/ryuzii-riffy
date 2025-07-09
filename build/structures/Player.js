@@ -357,8 +357,28 @@ class Player extends EventEmitter {
                 }
             } else if (player.previous.info.sourceName === "applemusic") {
                 try {
-                    amAutoPlay(player.previous.info.identifier).then(async (data) => {
-                        const response = await this.riffy.resolve({ query: data, source: "amsearch", requester: player.previous.info.requester });
+                    let genres = player.previous.info.genres || [];
+                    // Add 'K-Pop' genre if the title, artist, or album suggests it's KPOP
+                    const isKpop = (
+                        (player.previous.info.author && /k[- ]?pop|twice|bts|blackpink|stray kids|newjeans|seventeen|ive|itzy|aespa|le sserafim/i.test(player.previous.info.author)) ||
+                        (player.previous.info.title && /k[- ]?pop/i.test(player.previous.info.title)) ||
+                        (player.previous.info.albumName && /k[- ]?pop/i.test(player.previous.info.albumName))
+                    );
+                    if (isKpop && !genres.some(g => /k[- ]?pop/i.test(g.name))) {
+                        genres = [...genres, { genreId: '51', name: 'K-Pop' }];
+                    }
+                    amAutoPlay({
+                        country: player.previous.info.country || 'us',
+                        chartType: 'most-played',
+                        originalTrack: {
+                            genres,
+                            artistName: null // Only use artist fallback if all genre fallbacks fail
+                        }
+                    }).then(async (data) => {
+                        if (!data) return this.stop();
+                        // Use the Apple Music URL if available, else fallback to name + artist
+                        const query = data.url || `${data.name} ${data.artistName}`;
+                        const response = await this.riffy.resolve({ query, source: "amsearch", requester: player.previous.info.requester });
 
                         if (this.node.rest.version === "v4") {
                             if (!response || !response.tracks || ["error", "empty"].includes(response.loadType)) return this.stop();

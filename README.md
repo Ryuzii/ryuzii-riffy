@@ -265,6 +265,25 @@ client.login("Discord-Bot-Token-Here");
 
 ---
 
+## Autoplay Improvements & Apple Music Support
+
+The `autoPlay.js` in this project is based on [BebanCode's riffy implementation](https://github.com/BebanCode/riffy/blob/main/build/functions/autoPlay.js), but has been **significantly improved**:
+
+- **Apple Music Autoplay:** Now supports autoplay for Apple Music, in addition to SoundCloud and Spotify.
+- **Advanced Genre/Region-Aware Logic:**
+    - Tries all genres of the original track in the original country.
+    - Tries the main chart in the original country.
+    - Tries the pop genre in the original country.
+    - If KPOP/JPOP, tries the Korean/Japanese main chart.
+    - Falls back to the US main chart as a last resort.
+    - Logs each fallback step for transparency.
+- **Robust Fallbacks:** If genre charts are unavailable, it falls back to pop, artist, or regional charts as appropriate.
+- **Better Error Handling:** Handles API quirks, redirects, and missing genres gracefully.
+
+This makes autoplay much more relevant and enjoyable, especially for international and genre-specific music fans.
+
+---
+
 ## Running the Bot
 Now that we have created our project, we can run our bot by typing the following command in the terminal.
 ```bash

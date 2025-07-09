@@ -1,126 +1,314 @@
-const https = require('https');
-const crypto = require('crypto');
+const undici = require('undici');
 const { JSDOM } = require('jsdom');
+const crypto = require('crypto');
+const https = require('https');
 
-const httpAgent = new https.Agent({
-    keepAlive: true,
-    timeout: 8000,
-    maxSockets: 5,
-    maxFreeSockets: 2,
-    freeSocketTimeout: 4000
-});
+// Configurable options
+const DEFAULT_MARKET = 'US';
+const MAX_SC_TRACKS = 40;
+const LOGGING_ENABLED = process.env.DEBUG_AUTOPLAY === '1';
 
-const SC_LINK_PATTERN = /<a\s+itemprop="url"\s+href="(\/[^"]+)"/g;
-const SPOTIFY_TOTP_SECRET = Buffer.from('5507145853487499592248630329347', 'utf8');
-
-// Fetch with redirect support and timeout
-function fetchPage(url, options = {}) {
-    return new Promise((resolve, reject) => {
-        const req = https.get(url, { ...options, agent: httpAgent }, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                res.resume();
-                return fetchPage(new URL(res.headers.location, url).href, options)
-                    .then(resolve, reject);
-            }
-            if (res.statusCode !== 200) {
-                res.resume();
-                return reject(new Error(`Request failed with status: ${res.statusCode}`));
-            }
-            const data = [];
-            res.on('data', chunk => data.push(chunk));
-            res.on('end', () => resolve(Buffer.concat(data).toString()));
-        });
-        req.on('error', reject);
-        req.setTimeout(8000, () => req.destroy(new Error('Request timed out')));
-    });
+/**
+ * Internal logging utility
+ */
+function log(...args) {
+    if (LOGGING_ENABLED) console.log('[autoPlay]', ...args);
 }
 
-// SoundCloud autoplay handler
-async function scAutoPlay(baseUrl) {
+// --- SoundCloud ---
+/**
+ * Fetches a random recommended SoundCloud track URL.
+ * @param {string} url - The base SoundCloud user/profile URL.
+ * @param {object} [opts]
+ * @param {number} [opts.maxTracks=40] - Max tracks to consider.
+ * @returns {Promise<string|null>} Track URL or null if not found.
+ */
+async function scAutoPlay(url, { maxTracks = MAX_SC_TRACKS } = {}) {
     try {
-        const html = await fetchPage(`${baseUrl}/recommended`);
-        const found = [];
-        let match;
-        while ((match = SC_LINK_PATTERN.exec(html)) !== null) {
-            found.push(`https://soundcloud.com${match[1]}`);
-            if (found.length >= 40) break;
+        const res = await undici.fetch(`${url}/recommended`);
+        if (res.status !== 200) {
+            log('SoundCloud fetch failed', res.status);
+            return null;
         }
-        if (!found.length) throw new Error('No recommended SoundCloud tracks found.');
-        return found[Math.floor(Math.random() * found.length)];
-    } catch (err) {
-        console.error('[SC Autoplay Error]', err.message);
-        return null;
-    }
-}
-
-// Generate TOTP used for Spotify embed access
-function createTotp() {
-    const time = Math.floor(Date.now() / 30000);
-    const buffer = Buffer.alloc(8);
-    buffer.writeBigUInt64BE(BigInt(time), 0);
-    const hash = crypto.createHmac('sha1', SPOTIFY_TOTP_SECRET).update(buffer).digest();
-    const offset = hash[hash.length - 1] & 0xf;
-    const code = (
-        ((hash[offset] & 0x7f) << 24) |
-        ((hash[offset + 1] & 0xff) << 16) |
-        ((hash[offset + 2] & 0xff) << 8) |
-        (hash[offset + 3] & 0xff)
-    );
-    return [(code % 1_000_000).toString().padStart(6, '0'), time * 30000];
-}
-
-// Spotify autoplay handler
-async function spAutoPlay(seedId) {
-    const [totp, timestamp] = createTotp();
-    const tokenEndpoint = `https://open.spotify.com/api/token?reason=init&productType=embed&totp=${totp}&totpVer=5&ts=${timestamp}`;
-    try {
-        const tokenData = await fetchPage(tokenEndpoint);
-        const tokenJson = JSON.parse(tokenData);
-        const token = tokenJson?.accessToken;
-        if (!token) throw new Error('No access token from Spotify');
-        const recUrl = `https://api.spotify.com/v1/recommendations?limit=10&seed_tracks=${seedId}`;
-        const recData = await fetchPage(recUrl, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        const parsed = JSON.parse(recData);
-        if (!parsed.tracks?.length) throw new Error('No recommended tracks received.');
-        const track = parsed.tracks[Math.floor(Math.random() * parsed.tracks.length)];
-        return track.id;
-    } catch (err) {
-        console.error('[Spotify Autoplay Error]', err.message);
-        throw err;
-    }
-}
-
-// Apple Music autoplay handler
-async function amAutoPlay(trackId, storefront = 'us') {
-    try {
-        // Apple Music API: https://api.music.apple.com/v1/catalog/{storefront}/songs/{id}/recommendations
-        // This requires a developer token for full access. We'll try public web scraping as fallback.
-        const html = await fetchPage(`https://music.apple.com/${storefront}/album/${trackId}`);
+        const html = await res.text();
         const dom = new JSDOM(html);
         const document = dom.window.document;
-        // Try to find recommended tracks in the "You Might Also Like" section
-        const recSection = Array.from(document.querySelectorAll('section')).find(sec => sec.textContent && sec.textContent.includes('You Might Also Like'));
-        if (!recSection) throw new Error('No recommendations section found.');
-        const links = Array.from(recSection.querySelectorAll('a[href*="/album/"]'));
-        const ids = links.map(a => {
-            const match = a.href.match(/\/album\/([a-zA-Z0-9]+)/);
-            return match ? match[1] : null;
-        }).filter(Boolean);
-        if (!ids.length) throw new Error('No recommended Apple Music tracks found.');
-        return ids[Math.floor(Math.random() * ids.length)];
+        let trackLinks = [];
+        // Try to find links using robust selectors
+        try {
+            const secondNoscript = document.querySelectorAll('noscript')[1];
+            if (secondNoscript) {
+                const sectionElement = secondNoscript.querySelector('section');
+                if (sectionElement) {
+                    const articleElements = sectionElement.querySelectorAll('article');
+                    articleElements.forEach(articleElement => {
+                        const h2Element = articleElement.querySelector('h2[itemprop="name"]');
+                        if (h2Element) {
+                            const aElement = h2Element.querySelector('a[itemprop="url"]');
+                            if (aElement) {
+                                const href = aElement.getAttribute('href');
+                                if (href) {
+                                    trackLinks.push(`https://soundcloud.com${href}`);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            log('SoundCloud DOM parse error', e);
+        }
+        // Fallback: try regex if DOM fails
+        if (trackLinks.length === 0) {
+            const regex = /<a\s+itemprop="url"\s+href="(\/[^\"]+)"/g;
+            let match;
+            while ((match = regex.exec(html)) !== null) {
+                trackLinks.push(`https://soundcloud.com${match[1]}`);
+                if (trackLinks.length >= maxTracks) break;
+            }
+        }
+        if (trackLinks.length === 0) {
+            log('No SoundCloud tracks found');
+            return null;
+        }
+        return trackLinks[Math.floor(Math.random() * trackLinks.length)];
     } catch (err) {
-        console.error('[Apple Music Autoplay Error]', err.message);
+        log('scAutoPlay error', err);
         return null;
     }
 }
 
-module.exports = {
-    scAutoPlay,
-    spAutoPlay,
-    amAutoPlay,
+// --- Spotify ---
+let spotifyTokenCache = { token: null, expires: 0 };
+/**
+ * Fetches a Spotify access token, caching until expiry.
+ * @returns {Promise<string>} Access token
+ */
+async function getSpotifyAccessTokenCached() {
+    if (spotifyTokenCache.token && Date.now() < spotifyTokenCache.expires) {
+        return spotifyTokenCache.token;
+    }
+    const clientId = process.env.SPOTIFY_CLIENT_ID || 'ab6373a74cbe461386fdee1d6f276b67';
+    const clientSecret = process.env.SPOTIFY_CLIENT_SECRET || 'eb2843351b3d45b49e6e1d043364f3f2';
+    if (!clientId || !clientSecret) {
+        throw new Error('Spotify Client ID or Secret not found in environment variables.');
+    }
+    const response = await undici.fetch("https://accounts.spotify.com/api/token", {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Basic ' + Buffer.from(clientId + ':' + clientSecret).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials'
+    });
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to get Spotify access token. Status: ${response.status}. Body: ${errorBody}`);
+    }
+    const data = await response.json();
+    // Cache for 50 minutes (token is valid for 1 hour)
+    spotifyTokenCache = {
+        token: data.access_token,
+        expires: Date.now() + 50 * 60 * 1000
+    };
+    return data.access_token;
+}
+
+/**
+ * Fetches a random recommended Spotify track ID using related artists and their top tracks.
+ * @param {string} track_id - The starting Spotify track ID.
+ * @param {object} [opts]
+ * @param {string} [opts.market=DEFAULT_MARKET] - Market code.
+ * @returns {Promise<string|null>} Track ID or null if not found.
+ */
+async function spAutoPlay(track_id, { market = DEFAULT_MARKET } = {}) {
+    try {
+        const accessToken = await getSpotifyAccessTokenCached();
+        const authHeaders = { Authorization: `Bearer ${accessToken}` };
+        const trackDetailsResponse = await undici.fetch(`https://api.spotify.com/v1/tracks/${track_id}`, {
+            headers: authHeaders,
+        });
+        if (!trackDetailsResponse.ok) {
+            log(`Failed to fetch track details for ${track_id}`, trackDetailsResponse.status);
+            return null;
+        }
+        const trackDetails = await trackDetailsResponse.json();
+        if (!trackDetails.artists || trackDetails.artists.length === 0) {
+            log(`No artists found for input track ${track_id}`);
+            return null;
+        }
+        const primaryArtistId = trackDetails.artists[0].id;
+        let artistToQueryId = primaryArtistId;
+        // Try to get a related artist
+        const relatedArtistsResponse = await undici.fetch(`https://api.spotify.com/v1/artists/${primaryArtistId}/related-artists`, {
+            headers: authHeaders,
+        });
+        if (relatedArtistsResponse.ok) {
+            const relatedArtistsData = await relatedArtistsResponse.json().catch(() => null);
+            if (relatedArtistsData && relatedArtistsData.artists && relatedArtistsData.artists.length > 0) {
+                artistToQueryId = relatedArtistsData.artists[Math.floor(Math.random() * relatedArtistsData.artists.length)].id;
+            }
+        }
+        // Get top tracks for the chosen artist
+        let topTracksResponse = await undici.fetch(`https://api.spotify.com/v1/artists/${artistToQueryId}/top-tracks?market=${market}`, {
+            headers: authHeaders,
+        });
+        if (!topTracksResponse.ok && artistToQueryId !== primaryArtistId) {
+            // Fallback to primary artist
+            topTracksResponse = await undici.fetch(`https://api.spotify.com/v1/artists/${primaryArtistId}/top-tracks?market=${market}`, {
+                headers: authHeaders,
+            });
+            artistToQueryId = primaryArtistId;
+        }
+        if (!topTracksResponse.ok) {
+            log(`Failed to fetch top tracks for artist ${artistToQueryId}`, topTracksResponse.status);
+            return null;
+        }
+        const topTracksData = await topTracksResponse.json();
+        if (!topTracksData.tracks || topTracksData.tracks.length === 0) {
+            log(`No top tracks found for artist ${artistToQueryId} in market ${market}`);
+            return null;
+        }
+        return topTracksData.tracks[Math.floor(Math.random() * topTracksData.tracks.length)].id;
+    } catch (err) {
+        log('spAutoPlay error', err);
+        return null;
+    }
+}
+
+/**
+ * Fetches a random popular Apple Music track using the Apple Music RSS feeds (public, no auth required).
+ * @param {object} [opts]
+ * @param {string} [opts.country='us'] - Country code for the Apple Music store.
+ * @param {string} [opts.chartType='most-played'] - Chart type (e.g., 'most-played', 'new-releases').
+ * @param {object} [opts.originalTrack] - Optional original track object to use for fallbacks.
+ * @returns {Promise<object|null>} Track info object or null if not found.
+ */
+async function amAutoPlay({ country = 'us', chartType = 'most-played', originalTrack = null } = {}) {
+    try {
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; AppleMusicAutoplay/1.0; +https://apple.com)'
+            }
+        };
+        function fetchWithRedirects(url, options, maxRedirects = 3) {
+            return new Promise((resolve, reject) => {
+                let redirects = 0;
+                function request(u) {
+                    const req = require('https').get(u, options, (res) => {
+                        if ([301, 302].includes(res.statusCode) && res.headers.location && redirects < maxRedirects) {
+                            log('Apple Music RSS redirect to:', res.headers.location);
+                            redirects++;
+                            request(res.headers.location);
+                            return;
+                        }
+                        if (res.statusCode !== 200) {
+                            log('Apple Music RSS fetch failed', res.statusCode);
+                            resolve(null);
+                            return;
+                        }
+                        let rawData = '';
+                        res.on('data', (chunk) => { rawData += chunk; });
+                        res.on('end', () => {
+                            try {
+                                resolve(JSON.parse(rawData));
+                            } catch (e) {
+                                resolve(null);
+                            }
+                        });
+                    });
+                    req.on('error', reject);
+                }
+                request(url);
+            });
+        }
+        // Helper to pick a random track from a feed
+        function pickRandomTrack(feed) {
+            if (!feed || !feed.feed || !feed.feed.results || feed.feed.results.length === 0) return null;
+            return feed.feed.results[Math.floor(Math.random() * feed.feed.results.length)];
+        }
+        // 1. Try all genres of the original track in the original country
+        let genres = (originalTrack && originalTrack.genres) ? originalTrack.genres.filter(g => g.name && g.name.toLowerCase() !== 'music') : [];
+        let artistName = originalTrack && originalTrack.artistName;
+        let origCountry = country;
+        let foundTrack = null;
+        for (const genre of genres) {
+            if (genre && genre.genreId) {
+                const genreUrl = `https://rss.applemarketingtools.com/api/v2/${encodeURIComponent(origCountry)}/music/${encodeURIComponent(chartType)}/50/${encodeURIComponent(genre.genreId)}.json`;
+                log('Apple Music genre RSS fetch URL:', genreUrl);
+                let genreFeed = await fetchWithRedirects(genreUrl, options);
+                foundTrack = pickRandomTrack(genreFeed);
+                if (foundTrack) {
+                    log('Apple Music genre chart used:', genre.name);
+                    break;
+                } else {
+                    log(`Apple Music genre RSS tracks not found for genreId ${genre.genreId}`);
+                }
+            }
+        }
+        // 2. Try the main chart in the original country
+        if (!foundTrack) {
+            const mainChartUrl = `https://rss.applemarketingtools.com/api/v2/${encodeURIComponent(origCountry)}/music/${encodeURIComponent(chartType)}/50/songs.json`;
+            log('Apple Music main chart fetch URL:', mainChartUrl);
+            let mainFeed = await fetchWithRedirects(mainChartUrl, options);
+            foundTrack = pickRandomTrack(mainFeed);
+            if (foundTrack) log('Apple Music main chart used (original country)');
+        }
+        // 3. Try pop genre in the original country
+        if (!foundTrack) {
+            const popGenreId = '14';
+            const popGenreUrl = `https://rss.applemarketingtools.com/api/v2/${encodeURIComponent(origCountry)}/music/${encodeURIComponent(chartType)}/50/${popGenreId}.json`;
+            log('Apple Music pop genre RSS fetch URL:', popGenreUrl);
+            let popFeed = await fetchWithRedirects(popGenreUrl, options);
+            foundTrack = pickRandomTrack(popFeed);
+            if (foundTrack) log('Apple Music pop genre chart used (original country)');
+        }
+        // 4. If KPOP/JPOP, try Korean/Japanese main chart
+        const isKpop = genres.some(g => /k[- ]?pop/i.test(g.name));
+        const isJpop = genres.some(g => /j[- ]?pop/i.test(g.name));
+        if (!foundTrack && isKpop) {
+            const krChartUrl = 'https://rss.applemarketingtools.com/api/v2/kr/music/most-played/50/songs.json';
+            log('Apple Music KPOP fallback: using Korean main chart', krChartUrl);
+            let krFeed = await fetchWithRedirects(krChartUrl, options);
+            foundTrack = pickRandomTrack(krFeed);
+            if (foundTrack) log('Apple Music Korean main chart used for KPOP fallback');
+        }
+        if (!foundTrack && isJpop) {
+            const jpChartUrl = 'https://rss.applemarketingtools.com/api/v2/jp/music/most-played/50/songs.json';
+            log('Apple Music JPOP fallback: using Japanese main chart', jpChartUrl);
+            let jpFeed = await fetchWithRedirects(jpChartUrl, options);
+            foundTrack = pickRandomTrack(jpFeed);
+            if (foundTrack) log('Apple Music Japanese main chart used for JPOP fallback');
+        }
+        // 5. Try the US main chart as a last resort
+        if (!foundTrack && origCountry.toLowerCase() !== 'us') {
+            const usChartUrl = 'https://rss.applemarketingtools.com/api/v2/us/music/most-played/50/songs.json';
+            log('Apple Music US main chart fallback', usChartUrl);
+            let usFeed = await fetchWithRedirects(usChartUrl, options);
+            foundTrack = pickRandomTrack(usFeed);
+            if (foundTrack) log('Apple Music US main chart used as last resort');
+        }
+        // If still nothing, return null
+        if (!foundTrack) {
+            log('Apple Music fallback: no tracks found in any chart');
+            return null;
+        }
+        // Return track info
+        return {
+            name: foundTrack.name,
+            artistName: foundTrack.artistName,
+            url: foundTrack.url,
+            artworkUrl100: foundTrack.artworkUrl100,
+            genres: foundTrack.genres,
+        };
+    } catch (e) {
+        log('Apple Music RSS error', e);
+        return null;
+    }
+}
+
+module.exports = { 
+    scAutoPlay, 
+    spAutoPlay, 
+    amAutoPlay 
 };
